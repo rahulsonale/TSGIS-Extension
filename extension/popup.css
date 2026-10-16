@@ -1,9 +1,0 @@
-body { width: 300px; margin: 0; font: 14px Segoe UI, sans-serif; color: #17212b; }
-main { padding: 16px; }
-h1 { margin: 0 0 14px; font-size: 18px; }
-label { display: block; margin: 10px 0 4px; }
-input { box-sizing: border-box; width: 100%; padding: 8px; }
-button { width: 100%; margin-top: 14px; padding: 9px; border: 0; border-radius: 4px; color: white; background: #146c94; cursor: pointer; }
-button:disabled { opacity: .6; }
-#status { color: #46525e; }
-pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; }

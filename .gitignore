@@ -2,4 +2,6 @@ node_modules/
 .env
 .env.*
 !.env.example
-extension/credentials.json
+config/credentials.json
+data/browser-profile/
+output/

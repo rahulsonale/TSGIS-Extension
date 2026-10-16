@@ -1,13 +1,19 @@
-# Tamil Nilam land parcel extension
+# Tamil Nilam Parcel Lookup Bot
 
-The `extension/` directory contains an early Manifest V3 extension scaffold. Its popup reads the sample coordinate from `extension/search.json`; the values can also be edited in the popup and are retained for the next search.
+This project is a Node.js 18.20.8 and Playwright bot written in TypeScript. It reads login credentials from `config/credentials.json` and one coordinate from `config/search.json`, opens the Tamil Nilam GI Viewer in a visible browser, searches for the parcel, and saves parcel details and a screenshot.
 
-## Credentials
+## Setup
 
-`extension/credentials.json` is a local-only placeholder and is excluded from Git. The current extension does not automate login, and CAPTCHA must be solved by the user. Do not put credentials into a tracked extension file: browser extension package contents are readable by users. If credentials are later added locally, keep the file untracked and never publish the loaded extension with those credentials included.
+1. Install dependencies with `npm install`.
+2. Install the Playwright browser with `npx playwright install chromium`.
+3. Keep the provided login details in `config/credentials.json`. This local file is ignored by Git.
+4. Set the current lookup coordinate in `config/search.json`.
+5. Run `npm run search` to execute the TypeScript bot directly.
 
-## Current state
+The bot fills the Public login credentials. You must complete the CAPTCHA and submit the login in the visible browser, then press Enter in the terminal. The bot continues the lookup after the map viewer opens. It saves the session profile in `data/browser-profile/` so later runs can reuse it.
 
-Search opens or focuses the Tamil Nilam page and passes the coordinates to the content script when the map viewer is already open. The live site selectors, Goto interaction, parcel extraction, and screenshot capture still need implementation and validation against the viewer. The example coordinate is Amuthurmedu: `13.100889, 80.057889`.
+Results are saved as JSON under `output/results/` and screenshots under `output/screenshots/`.
 
-Load `extension/` as an unpacked extension in Chrome or Edge to inspect the popup scaffold.
+## Project source
+
+Edit `src/bot.ts`. The bot runs from TypeScript with `tsx`; `npm run build` only type-checks the source and emits no JavaScript files.

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { chromium, type Locator, type Page } from "playwright";
+import { createServer } from "node:http";
+import { chromium, type BrowserContext, type Locator, type Page } from "playwright";
 
 const SITE_URL = "https://tngis.tn.gov.in/apps/gi_viewer/index.html";
 const ROOT = process.cwd();
@@ -89,64 +90,67 @@ async function dismissAccountChoice(page: Page): Promise<void> {
   }
 }
 
-async function requestCaptchaFromUi(page: Page): Promise<string> {
+async function requestCaptchaFromUi(context: BrowserContext, sitePage: Page): Promise<string> {
   let resolveAnswer!: (answer: string) => void;
-  const answerPromise = new Promise<string>((resolve) => {
-    resolveAnswer = resolve;
-  });
+  const answerPromise = new Promise<string>((resolve) => { resolveAnswer = resolve; });
+  const html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<title>Tamil Nilam CAPTCHA</title><style>' +
+    'body{margin:0;background:#eef4f6;color:#17313a;font:15px Arial,sans-serif}.card{max-width:440px;margin:12vh auto;background:white;padding:28px;border-radius:14px;box-shadow:0 8px 28px #18333a22}h1{font-size:22px;margin:0 0 12px}p{line-height:1.5;color:#52656d}label{display:block;font-weight:600;margin:20px 0 8px}input{box-sizing:border-box;width:100%;font-size:18px;padding:12px;border:1px solid #9aafb8;border-radius:7px}button{width:100%;padding:12px;margin-top:14px;border:0;border-radius:7px;background:#126b79;color:white;font-size:16px;cursor:pointer}button:disabled{opacity:.65}#status{min-height:22px;margin-top:12px;color:#126b79}' +
+    '</style></head><body><main class="card"><h1>Enter Tamil Nilam CAPTCHA</h1>' +
+    '<p>Switch to the Tamil Nilam tab to read the CAPTCHA. Return here, enter it exactly as shown, and submit.</p>' +
+    '<form id="form"><label for="captcha">CAPTCHA text</label><input id="captcha" name="captcha" type="text" maxlength="20" autocomplete="off" autocapitalize="off" spellcheck="false" required autofocus>' +
+    '<button id="submit" type="submit">Send CAPTCHA</button><div id="status" role="status"></div></form></main>' +
+    '<script>const f=document.getElementById("form"),i=document.getElementById("captcha"),b=document.getElementById("submit"),s=document.getElementById("status");f.addEventListener("submit",async e=>{e.preventDefault();if(!i.value.trim()){i.focus();return}s.textContent="Sending…";b.disabled=true;try{const r=await fetch("/captcha",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({captcha:i.value.trim()})});if(!r.ok)throw new Error("Could not send CAPTCHA");s.textContent="CAPTCHA sent. Returning to Tamil Nilam…"}catch(err){s.textContent=err.message;b.disabled=false}});</script></body></html>';
 
-  await page.exposeFunction("__tngisSubmitCaptcha", (answer: string) => {
-    if (typeof answer === "string" && answer.trim())
-      resolveAnswer(answer.trim());
-  });
-  await page.evaluate(() => {
-    document.getElementById("tngis-captcha-entry")?.remove();
-    const style = document.createElement("style");
-    style.id = "tngis-captcha-entry-style";
-    style.textContent =
-      "#tngis-captcha-entry{position:fixed;right:24px;bottom:24px;z-index:2147483647;width:300px;padding:16px;border:1px solid #b9cbd2;border-radius:12px;background:#fff;box-shadow:0 8px 28px #0004;color:#182b35;font:14px/1.4 Arial,sans-serif}" +
-      "#tngis-captcha-entry h2{margin:0 0 6px;font-size:16px}#tngis-captcha-entry p{margin:0 0 10px;color:#4b5d66}" +
-      "#tngis-captcha-entry input{box-sizing:border-box;width:100%;padding:10px;border:1px solid #97aab2;border-radius:6px;font-size:16px}" +
-      "#tngis-captcha-entry button{width:100%;margin-top:10px;padding:10px;border:0;border-radius:6px;background:#126b79;color:#fff;cursor:pointer;font-size:14px}" +
-      "#tngis-captcha-entry [data-error]{min-height:18px;margin-top:6px;color:#b42318}";
-    document.head.append(style);
-
-    const panel = document.createElement("section");
-    panel.id = "tngis-captcha-entry";
-    panel.setAttribute("aria-label", "CAPTCHA entry");
-    panel.innerHTML =
-      "<h2>Enter CAPTCHA</h2><p>Read the CAPTCHA shown in the Tamil Nilam login form and type it here.</p>" +
-      '<input type="text" maxlength="20" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="CAPTCHA text" />' +
-      '<div data-error role="status"></div><button type="button">Submit CAPTCHA</button>';
-    document.body.append(panel);
-
-    const captchaField = panel.querySelector("input")!;
-    const error = panel.querySelector("[data-error]")!;
-    const submit = () => {
-      const value = captchaField.value.trim();
-      if (!value) {
-        error.textContent = "Enter the CAPTCHA first.";
-        captchaField.focus();
-        return;
+  const server = createServer((request, response) => {
+    if (request.method === 'GET' && request.url === '/') {
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+      response.end(html);
+      return;
+    }
+    if (request.method !== 'POST' || request.url !== '/captcha') {
+      response.writeHead(404).end('Not found');
+      return;
+    }
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk: string) => { body += chunk; });
+    request.on('end', () => {
+      try {
+        const parsed = JSON.parse(body) as { captcha?: unknown };
+        if (typeof parsed.captcha !== 'string' || !parsed.captcha.trim()) {
+          response.writeHead(400).end('Enter the CAPTCHA first.');
+          return;
+        }
+        resolveAnswer(parsed.captcha.trim());
+        response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }).end('OK');
+      } catch {
+        response.writeHead(400).end('Invalid request.');
       }
-      const bridge = (
-        window as unknown as { __tngisSubmitCaptcha?: (answer: string) => void }
-      ).__tngisSubmitCaptcha;
-      bridge?.(value);
-      panel.remove();
-      style.remove();
-    };
-    panel.querySelector("button")!.addEventListener("click", submit);
-    captchaField.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") submit();
     });
-    captchaField.focus();
   });
 
-  return answerPromise;
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Could not start the CAPTCHA entry UI.');
+  const uiPage = await context.newPage();
+  try {
+    await uiPage.goto('http://127.0.0.1:' + address.port + '/', { waitUntil: 'domcontentloaded' });
+    await uiPage.bringToFront();
+    console.log('CAPTCHA entry UI is open in another browser tab. Switch to the Tamil Nilam tab to read the code, then submit it here.');
+    return await answerPromise;
+  } finally {
+    if (!uiPage.isClosed()) await uiPage.close().catch(() => undefined);
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await sitePage.bringToFront().catch(() => undefined);
+  }
 }
 
 async function waitForHumanLogin(
+  context: BrowserContext,
   page: Page,
   credentials: Credentials,
 ): Promise<void> {
@@ -250,7 +254,7 @@ async function waitForHumanLogin(
   console.log(
     "Credentials filled. Enter the CAPTCHA in the browser helper panel.",
   );
-  const captchaAnswer = await requestCaptchaFromUi(page);
+  const captchaAnswer = await requestCaptchaFromUi(context, page);
 
   const captchaInput = loginModal
     .getByPlaceholder(/captcha/i)
@@ -484,36 +488,52 @@ async function waitForMapTiles(page: Page): Promise<void> {
     });
 }
 
+async function saveScreenshot(page: Page, filePath: string): Promise<void> {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  console.log('Saving screenshot to: ' + filePath);
+  await page.screenshot({ path: filePath, fullPage: false });
+  const savedFile = await fs.stat(filePath);
+  if (savedFile.size === 0) throw new Error('Screenshot file was created but is empty: ' + filePath);
+  console.log('Screenshot saved (' + savedFile.size + ' bytes).');
+}
+
 async function searchParcel(
   page: Page,
   coordinates: Coordinates,
 ): Promise<ParcelDetails> {
   const closeFilter = await openGoto(page);
-  const latitudeInput = page
-    .getByPlaceholder(/enter latitude|latitude/i)
-    .or(page.getByLabel(/latitude/i))
-    .first();
-  const longitudeInput = page
-    .getByPlaceholder(/enter longitude|longitude/i)
-    .or(page.getByLabel(/longitude/i))
-    .first();
-  await latitudeInput.waitFor({ state: "visible", timeout: 15_000 });
-  await longitudeInput.waitFor({ state: "visible", timeout: 15_000 });
-  const latitude = latitudeInput;
-  const longitude = longitudeInput;
-  if (!latitude || !longitude)
-    throw new Error(
-      "Could not find the Latitude and Longitude inputs in Goto.",
-    );
+  console.log('Waiting for the Goto coordinate fields…');
+  const latitude = await firstVisible(
+    page.getByPlaceholder(/enter latitude/i),
+    page.getByPlaceholder(/latitude/i),
+    page.getByLabel(/latitude/i),
+  );
+  const longitude = await firstVisible(
+    page.getByPlaceholder(/enter longitude/i),
+    page.getByPlaceholder(/longitude/i),
+    page.getByLabel(/longitude/i),
+  );
+  if (!latitude || !longitude) {
+    await fs.mkdir(path.join(ROOT, 'output'), { recursive: true });
+    await page.screenshot({ path: path.join(ROOT, 'output', 'goto-inputs-not-found.png') }).catch(() => undefined);
+    throw new Error('Could not find visible latitude/longitude fields after selecting Goto. Screenshot saved to output/goto-inputs-not-found.png.');
+  }
+  console.log('Filling coordinates from config/search.json…');
   await latitude.fill(String(coordinates.lat));
   await longitude.fill(String(coordinates.long));
 
-  const goButton = page
-    .getByRole("button", { name: /^go\s*to$/i })
-    .or(page.getByText(/^go\s*to$/i))
-    .first();
-  await goButton.waitFor({ state: "visible", timeout: 15_000 });
+  const goButton = await firstVisible(
+    page.getByRole('button', { name: /^go\s*to$/i }),
+    page.getByText(/^go\s*to$/i),
+  );
+  if (!goButton) {
+    await fs.mkdir(path.join(ROOT, 'output'), { recursive: true });
+    await page.screenshot({ path: path.join(ROOT, 'output', 'goto-button-not-found.png') }).catch(() => undefined);
+    throw new Error('Could not find the visible Go To button. Screenshot saved to output/goto-button-not-found.png.');
+  }
+  console.log('Submitting Go To…');
   await goButton.click();
+  console.log('Waiting for parcel information…');
 
   await page.waitForFunction(
     () => {
@@ -541,7 +561,7 @@ async function searchParcel(
   ) {
     await closeFilter();
     await waitForMapTiles(page);
-    await page.screenshot({ path: screenshot, fullPage: false });
+    await saveScreenshot(page, screenshot);
     return {
       input: coordinates,
       areaType: "Rural",
@@ -568,7 +588,7 @@ async function searchParcel(
 
   await waitForMapTiles(page);
 
-  await page.screenshot({ path: screenshot, fullPage: false });
+  await saveScreenshot(page, screenshot);
   return parcelFromText(bodyText, coordinates, screenshotRelative);
 }
 
@@ -609,7 +629,7 @@ async function main(): Promise<void> {
       timeout: 60_000,
     });
     if (!/map-viewer/i.test(page.url()))
-      await waitForHumanLogin(page, credentials);
+      await waitForHumanLogin(context, page, credentials);
     await closeInitialLayersPanel(page);
     const result = await searchParcel(page, coordinates);
     const name = `${coordinates.lat}_${coordinates.long}`;
@@ -620,7 +640,7 @@ async function main(): Promise<void> {
       "utf8",
     );
     console.log(`${result.status}: ${path.relative(ROOT, resultPath)}`);
-    if (result.screenshot) console.log(`Screenshot: ${result.screenshot}`);
+    if (result.screenshot) console.log(`Screenshot: ${path.resolve(ROOT, result.screenshot)}`);
     await new Promise((resolve) => setTimeout(resolve, 3000));
   } finally {
     await context.close();
